@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tirage au sort Twitch</title>
+<style>
+  :root { --violet:#9146ff; --violet2:#772ce8; --bg:#0e0e10; --card:#18181b; --line:#2f2f35; --txt:#efeff1; --mute:#adadb8; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; min-height:100%; }
+  body { background:var(--bg); color:var(--txt); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  button { font-family:inherit; cursor:pointer; }
+  .hidden { display:none !important; }
+
+  /* Boutons */
+  .btn { display:block; width:100%; text-align:center; text-decoration:none; border:0; border-radius:6px; padding:10px 14px; font-size:15px; font-weight:600; color:#fff; background:var(--violet); }
+  .btn:hover:not(:disabled) { background:var(--violet2); }
+  .btn:disabled { opacity:.4; cursor:not-allowed; }
+  .btn.ghost { background:#2f2f35; }
+  .btn.ghost:hover:not(:disabled) { background:#3a3a42; }
+  .btn.small { width:auto; display:inline-block; padding:5px 10px; font-size:12px; }
+
+  /* En-tête */
+  .top { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 20px; background:var(--card); border-bottom:1px solid var(--line); }
+  .top h1 { font-size:18px; margin:0; }
+  .pill { display:inline-flex; align-items:center; gap:8px; font-size:13px; color:var(--mute); }
+  .dot { width:10px; height:10px; border-radius:50%; background:#6b6b75; flex:none; }
+  .dot.on { background:#00c853; } .dot.wait { background:#ffb300; }
+
+  /* Mise en page en cases */
+  .layout { display:grid; grid-template-columns:320px minmax(0,1fr) 380px; gap:14px; padding:14px; height:calc(100vh - 56px); }
+  .col { display:flex; flex-direction:column; gap:14px; min-height:0; min-width:0; }
+  .col1 { overflow-y:auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; min-height:0; min-width:0; }
+  .card h2 { font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--mute); margin:0 0 12px; font-weight:700; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+
+  /* Configuration */
+  label { display:block; font-size:13px; color:var(--mute); margin:12px 0 4px; }
+  label:first-of-type { margin-top:0; }
+  input[type=text], input[type=number], textarea { width:100%; padding:9px 10px; border-radius:6px; border:1px solid var(--line); background:#0e0e10; color:var(--txt); font-size:15px; font-family:inherit; }
+  input:focus, textarea:focus { outline:2px solid var(--violet); border-color:transparent; }
+  .row { display:flex; gap:10px; } .row > div { flex:1; }
+  .check { display:flex; align-items:center; gap:8px; margin:10px 0 0; font-size:14px; }
+  .check input { accent-color:var(--violet); width:16px; height:16px; }
+  .btns { display:grid; gap:8px; margin-top:14px; }
+  details { color:var(--mute); font-size:13px; }
+  summary { cursor:pointer; }
+  #diag { white-space:pre-wrap; font-size:11px; line-height:1.5; margin:8px 0 0; color:var(--mute); max-height:170px; overflow:auto; }
+
+  /* Tirage */
+  .drawcard { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:12px; padding:20px; }
+  #status { color:var(--mute); font-size:18px; max-width:720px; }
+  #timer { font-size:clamp(56px,10vw,140px); font-weight:800; font-variant-numeric:tabular-nums; line-height:1; }
+  #count { font-size:20px; color:var(--mute); } #count b { color:var(--txt); }
+  #winner { font-size:clamp(36px,7vw,96px); font-weight:800; line-height:1.1; background:linear-gradient(90deg,#c9a4ff,#9146ff,#ff6ec7); -webkit-background-clip:text; background-clip:text; color:transparent; word-break:break-word; }
+  #winner.clickable { cursor:pointer; transition:transform .15s; }
+  #winner.clickable:hover { transform:scale(1.03); }
+  #winner.reveal { animation:pop .6s ease; }
+  #hint { color:#c9a4ff; font-size:14px; }
+  @keyframes pop { 0%{transform:scale(.6);opacity:0} 60%{transform:scale(1.1)} 100%{transform:scale(1);opacity:1} }
+
+  /* Message du gagnant */
+  #msgEmpty { color:var(--mute); font-size:14px; }
+  #msg { background:#0e0e10; border:2px solid var(--violet); border-radius:12px; padding:14px 20px; animation:pop .4s ease; }
+  #msg .who { font-weight:700; font-size:18px; margin-bottom:4px; }
+  #msg .txt { font-size:clamp(20px,2.6vw,32px); line-height:1.35; word-break:break-word; }
+  #msg img { height:1.5em; vertical-align:middle; margin:0 2px; }
+
+  /* Participants */
+  #chips { display:flex; flex-wrap:wrap; gap:6px; max-height:130px; overflow:auto; }
+  .chip { background:#26262c; border:0; border-radius:999px; padding:3px 11px; font-size:13px; color:var(--mute); }
+  .chip:hover { background:#34343c; color:var(--txt); }
+  #chipsEmpty { color:var(--mute); font-size:14px; }
+
+  /* Chat */
+  .chatcard { flex:1; display:flex; flex-direction:column; position:relative; }
+  #chatLog { flex:1; min-height:0; overflow-y:auto; font-size:14px; line-height:1.45; }
+  #chatEmpty { color:var(--mute); font-size:14px; padding:6px 2px; }
+  .line { padding:3px 6px; border-radius:6px; word-break:break-word; }
+  .line.in { background:rgba(145,70,255,.12); }
+  .line.win { background:rgba(255,110,199,.2); outline:1px solid #ff6ec7; }
+  .line.action .tx { font-style:italic; }
+  .line img { height:1.4em; vertical-align:middle; margin:0 1px; }
+  .nm { background:none; border:0; padding:0; font-weight:700; font-size:inherit; }
+  .nm:hover { text-decoration:underline; }
+  #toBottom { position:absolute; left:50%; transform:translateX(-50%); bottom:14px; box-shadow:0 4px 14px #000a; }
+
+  /* Fenêtre de contact */
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; padding:16px; z-index:50; }
+  .modal-box { position:relative; width:100%; max-width:440px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:22px; max-height:100%; overflow:auto; }
+  .modal-box h2 { font-size:24px; margin:0 0 2px; text-transform:none; letter-spacing:0; color:var(--txt); display:block; }
+  .modal .sub { color:var(--mute); font-size:13px; margin-bottom:6px; }
+  .modal .x { position:absolute; top:10px; right:12px; background:none; border:0; color:var(--mute); font-size:20px; }
+  .modal .note { color:var(--mute); font-size:12px; margin-top:12px; line-height:1.5; }
+  #toast { margin-top:10px; font-size:13px; color:#00c853; min-height:18px; }
+
+  /* Mode overlay (OBS) */
+  body.overlay { background:transparent; }
+  body.overlay .top, body.overlay .col1, body.overlay .col3, body.overlay #partsCard, body.overlay #hint, body.overlay #msgEmpty { display:none !important; }
+  body.overlay .layout { display:block; height:auto; padding:0; }
+  body.overlay .col2 { gap:10px; }
+  body.overlay .card { background:transparent; border:0; padding:8px; }
+  body.overlay #msgCard h2 { display:none; }
+  body.overlay #status, body.overlay #count { text-shadow:0 2px 6px #000; }
+  #exitOverlay { position:fixed; top:8px; right:8px; opacity:.12; z-index:20; }
+  #exitOverlay:hover { opacity:1; }
+
+  #tabs { display:none; }
+  @media (max-width:1100px) {
+    .layout { grid-template-columns:280px minmax(0,1fr) 320px; }
+  }
+  /* Téléphone / petite fenêtre : une section à la fois, navigation en bas */
+  @media (max-width:900px) {
+    .top { position:sticky; top:0; z-index:10; padding:10px 14px; padding-top:calc(10px + env(safe-area-inset-top)); }
+    .top h1 { font-size:16px; }
+    .pill { font-size:11px; text-align:right; }
+    .layout { display:block; height:auto; padding:12px 12px 96px; }
+    .col { display:none; }
+    body[data-tab="draw"] .col2 { display:flex; }
+    body[data-tab="chat"] .col3 { display:flex; }
+    body[data-tab="cfg"] .col1 { display:flex; overflow:visible; }
+    .chatcard { height:calc(100vh - 200px); height:calc(100dvh - 200px); }
+    input[type=text], input[type=number], textarea { font-size:16px; }
+    .drawcard { padding:24px 12px; min-height:300px; }
+    #msg .txt { font-size:22px; }
+    #tabs { display:flex; position:fixed; left:0; right:0; bottom:0; z-index:30; background:var(--card); border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom); }
+    #tabs button { flex:1; background:none; border:0; color:var(--mute); padding:10px 4px 8px; font-size:12px; display:flex; flex-direction:column; align-items:center; gap:2px; }
+    #tabs button span { font-size:20px; }
+    #tabs button.active { color:#c9a4ff; font-weight:700; }
+    body.overlay #tabs { display:none; }
+    body.overlay .col2 { display:flex; }
+    .modal-box { max-height:92%; }
+  }
+</style>
+</head>
+<body data-tab="cfg">
+
+<header class="top">
+  <h1>🎁 Tirage au sort Twitch</h1>
+  <div class="pill"><span class="dot" id="dot"></span><span id="conn">Déconnecté</span></div>
+</header>
+
+<div class="layout">
+
+  <!-- Colonne 1 : réglages -->
+  <div class="col col1">
+    <section class="card" id="cfgCard">
+      <h2>Configuration</h2>
+
+      <label for="channel">Chaîne Twitch</label>
+      <input type="text" id="channel" placeholder="ex : monpseudo" autocomplete="off">
+      <div class="btns" style="margin-top:8px"><button class="btn ghost" id="chatBtn">🔌 Se connecter au chat</button></div>
+
+      <label for="keyword" style="margin-top:16px">Mot-clé pour participer <span style="opacity:.7">(vide = tout message compte)</span></label>
+      <input type="text" id="keyword" value="!giveaway" autocomplete="off">
+
+      <div class="row">
+        <div><label for="min">Minutes</label><input type="number" id="min" min="0" value="2"></div>
+        <div><label for="sec">Secondes</label><input type="number" id="sec" min="0" max="59" value="0"></div>
+      </div>
+
+      <label for="excluded">Comptes à exclure (séparés par une virgule)</label>
+      <input type="text" id="excluded" value="nightbot,streamelements,moobot,streamlabs,fossabot" autocomplete="off">
+
+      <div class="check"><input type="checkbox" id="exBroadcaster" checked><span>Exclure le streamer</span></div>
+      <div class="check"><input type="checkbox" id="exMods"><span>Exclure les modérateurs</span></div>
+
+      <div class="btns">
+        <button class="btn" id="startBtn">▶ Lancer le tirage</button>
+        <button class="btn ghost hidden" id="rerollBtn">🔁 Tirer un autre gagnant</button>
+        <button class="btn ghost" id="resetBtn">■ Réinitialiser le tirage</button>
+        <button class="btn ghost" id="overlayBtn">🖥 Mode overlay (OBS)</button>
+      </div>
+    </section>
+
+    <section class="card" id="diagCard">
+      <details>
+        <summary>Diagnostic de connexion</summary>
+        <pre id="diag">(rien pour l'instant)</pre>
+      </details>
+      <details style="margin-top:12px">
+        <summary>Mode test (sans Twitch)</summary>
+        <div class="btns">
+          <button class="btn ghost" id="fakeBtn">+ 5 participants fictifs</button>
+          <button class="btn ghost" id="fakeMsgBtn">Simuler le message du gagnant</button>
+        </div>
+      </details>
+    </section>
+  </div>
+
+  <!-- Colonne 2 : tirage -->
+  <div class="col col2">
+    <section class="card drawcard" id="drawCard">
+      <div id="status">Prêt. Configure le tirage puis clique sur « Lancer ».</div>
+      <div id="timer" class="hidden">00:00</div>
+      <div id="count" class="hidden"><b id="n">0</b> participant(s)</div>
+      <div id="winner" class="hidden" role="button" tabindex="0" title="Cliquer pour contacter le gagnant"></div>
+      <div id="hint" class="hidden">👆 Clique sur le nom du gagnant pour le contacter</div>
+    </section>
+
+    <section class="card" id="msgCard">
+      <h2>Message du gagnant</h2>
+      <div id="msgEmpty">Son message s'affichera ici dès qu'il écrira dans le chat.</div>
+      <div id="msg" class="hidden"><div class="who" id="who"></div><div class="txt" id="txt"></div></div>
+    </section>
+
+    <section class="card" id="partsCard">
+      <h2><span>Participants (<span id="n2">0</span>)</span></h2>
+      <div id="chipsEmpty">Personne pour l'instant.</div>
+      <div id="chips"></div>
+    </section>
+  </div>
+
+  <!-- Colonne 3 : chat -->
+  <div class="col col3">
+    <section class="card chatcard" id="chatCard">
+      <h2><span>Chat en direct</span><button class="btn ghost small" id="clearChat">Effacer</button></h2>
+      <div id="chatLog"><div id="chatEmpty">Connecte-toi au chat pour voir les messages défiler.</div></div>
+      <button class="btn small hidden" id="toBottom">↓ Revenir en bas</button>
+    </section>
+  </div>
+</div>
+
+<nav id="tabs">
+  <button data-tab="draw"><span>🎁</span>Tirage</button>
+  <button data-tab="chat"><span>💬</span>Chat</button>
+  <button data-tab="cfg"><span>⚙️</span>Réglages</button>
+</nav>
+
+<button class="btn ghost small hidden" id="exitOverlay">Quitter l'overlay</button>
+
+<!-- Fenêtre de contact -->
+<div id="contact" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-box">
+    <button class="x" id="closeContact" aria-label="Fermer">✕</button>
+    <h2 id="cName"></h2>
+    <div class="sub" id="cLogin"></div>
+
+    <label for="cMsg" style="margin-top:14px">Message à envoyer</label>
+    <textarea id="cMsg" rows="3">Félicitations, tu as gagné le tirage au sort ! 🎉 Peux-tu me contacter pour récupérer ton lot ?</textarea>
+
+    <div class="btns">
+      <a class="btn" id="cProfile" target="_blank" rel="noopener noreferrer">👤 Ouvrir son profil Twitch</a>
+      <button class="btn ghost" id="cWhisper">💬 Copier le chuchotement (/w)</button>
+      <button class="btn ghost" id="cMention">📣 Copier @pseudo + message (chat public)</button>
+      <a class="btn ghost" id="cPopout" target="_blank" rel="noopener noreferrer">↗ Ouvrir le chat Twitch pour coller</a>
+    </div>
+    <div id="toast"></div>
+    <div class="note">Twitch ne permet pas d'envoyer un message privé depuis une page web sans connexion : le message est copié, il te suffit de le coller dans ton chat Twitch. Les chuchotements demandent un compte Twitch avec un numéro de téléphone vérifié.</div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const el = {
+    status:$('status'), timer:$('timer'), count:$('count'), n:$('n'), n2:$('n2'), winner:$('winner'), hint:$('hint'),
+    msg:$('msg'), msgEmpty:$('msgEmpty'), who:$('who'), txt:$('txt'), chips:$('chips'), chipsEmpty:$('chipsEmpty'),
+    startBtn:$('startBtn'), rerollBtn:$('rerollBtn'), resetBtn:$('resetBtn'), chatBtn:$('chatBtn'),
+    dot:$('dot'), conn:$('conn'), chatLog:$('chatLog'), chatEmpty:$('chatEmpty'), toBottom:$('toBottom')
+  };
+
+  let ws = null, wantConnected = false, reconnectTimer = null;
+  let state = 'idle';                 // idle | running | drawing | picked
+  let channelName = '', keyword = '', excluded = new Set();
+  let participants = new Map();       // login -> {login, display, color}
+  let winner = null, endAt = 0, tickTimer = null, spinTimer = null;
+  let msgCount = 0, joinTimer = null, joined = false;
+
+  /* ---------- Réglages sauvegardés ---------- */
+  const FIELDS = ['channel','keyword','min','sec','excluded'];
+  try { FIELDS.forEach(f => { const v = localStorage.getItem('tt_'+f); if (v !== null) $(f).value = v; }); } catch(e) {}
+  function saveSettings() { try { FIELDS.forEach(f => localStorage.setItem('tt_'+f, $(f).value)); } catch(e) {} }
+
+  /* ---------- Outils ---------- */
+  function randInt(n) {
+    const max = Math.floor(0x100000000 / n) * n;
+    const buf = new Uint32Array(1);
+    let x;
+    do { crypto.getRandomValues(buf); x = buf[0]; } while (x >= max);
+    return x % n;
+  }
+  function readable(c) {   // éclaircit les couleurs de pseudo trop sombres
+    const m = /^#([0-9a-f]{6})$/i.exec(c || '');
+    if (!m) return '#c9a4ff';
+    const n = parseInt(m[1], 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+    if ((0.299 * r + 0.587 * g + 0.114 * b) / 255 >= 0.5) return c;
+    const mix = v => Math.round(v + (255 - v) * 0.5);
+    return 'rgb(' + mix(r) + ',' + mix(g) + ',' + mix(b) + ')';
+  }
+  function getChannel() {
+    const ch = $('channel').value.trim().toLowerCase()
+      .replace(/^https?:\/\//, '').replace(/^(www\.)?twitch\.tv\//, '')
+      .replace(/^[#@]+/, '').replace(/[\s\/?].*$/, '');
+    if (!ch) return '';
+    if (!/^\w{3,25}$/.test(ch)) { alert('Nom de chaîne invalide : utilise uniquement le pseudo Twitch (lettres, chiffres, _).'); return null; }
+    $('channel').value = ch;
+    return ch;
+  }
+
+  /* ---------- Diagnostic & état de connexion ---------- */
+  const diagEl = $('diag');
+  function log(s) {
+    const t = new Date().toLocaleTimeString('fr-FR');
+    diagEl.textContent = (t + '  ' + s + '\n' + (diagEl.textContent.startsWith('(rien') ? '' : diagEl.textContent)).split('\n').slice(0, 14).join('\n');
+  }
+  function setConn(s, extra) {
+    el.dot.className = 'dot ' + (s === 'on' ? 'on' : s === 'wait' ? 'wait' : '');
+    el.conn.textContent = s === 'on' ? 'Connecté à #' + channelName + ' · ' + msgCount + ' message(s) lu(s)'
+      : s === 'wait' ? 'Connexion…' : (extra || 'Déconnecté');
+  }
+  function updateChatBtn() { el.chatBtn.textContent = wantConnected ? '⏏ Se déconnecter du chat' : '🔌 Se connecter au chat'; }
+
+  /* ---------- Connexion IRC Twitch (anonyme, lecture seule) ---------- */
+  function connect() {
+    disconnect(false);
+    wantConnected = true; joined = false; msgCount = 0;
+    updateChatBtn(); setConn('wait');
+    log('Ouverture de la connexion vers le chat de #' + channelName);
+    let sock;
+    try { sock = new WebSocket('wss://irc-ws.chat.twitch.tv:443'); }
+    catch (e) { log('Impossible de créer la connexion : ' + e.message); setConn('off', 'Connexion bloquée'); return; }
+    ws = sock;
+    clearTimeout(joinTimer);
+    joinTimer = setTimeout(() => {
+      if (!joined && ws === sock) {
+        log('⚠ Pas de confirmation après 8 s. Le réseau ou la page bloque peut-être Twitch (ouvre le fichier directement depuis ton ordinateur).');
+        setConn('off', 'Pas de réponse de Twitch');
+      }
+    }, 8000);
+    sock.onopen = () => {
+      log('Connexion ouverte, authentification anonyme…');
+      sock.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+      sock.send('PASS SCHMOOZE');
+      sock.send('NICK justinfan' + (10000 + Math.floor(Math.random() * 80000)));
+      sock.send('JOIN #' + channelName);
+    };
+    sock.onmessage = e => String(e.data).split('\r\n').filter(Boolean).forEach(handleLine);
+    sock.onclose = ev => {
+      if (ws !== sock) return;
+      log('Connexion fermée (code ' + ev.code + ')' + (wantConnected ? ', nouvelle tentative dans 3 s' : ''));
+      if (!joined) setConn('off', 'Connexion impossible'); else setConn('off');
+      if (wantConnected) reconnectTimer = setTimeout(connect, 3000);
+    };
+    sock.onerror = () => { log('Erreur réseau sur la connexion WebSocket'); };
+  }
+  function disconnect(clearWant = true) {
+    if (clearWant) wantConnected = false;
+    clearTimeout(reconnectTimer); clearTimeout(joinTimer);
+    if (ws) { const s = ws; ws = null; try { s.close(); } catch(e) {} }
+    setConn('off'); updateChatBtn();
+  }
+  function toggleChat() {
+    if (wantConnected) { disconnect(); log('Déconnecté du chat'); return; }
+    const ch = getChannel();
+    if (ch === null) return;
+    if (!ch) { alert('Indique d\'abord le pseudo de ta chaîne Twitch.'); return; }
+    saveSettings(); channelName = ch; connect(); setTab('chat');
+  }
+
+  function parse(line) {
+    let tags = {}, rest = line, prefix = '', trailing = null;
+    if (rest[0] === '@') {
+      const i = rest.indexOf(' ');
+      rest.slice(1, i).split(';').forEach(t => { const j = t.indexOf('='); tags[t.slice(0, j)] = t.slice(j + 1); });
+      rest = rest.slice(i + 1);
+    }
+    if (rest[0] === ':') { const i = rest.indexOf(' '); prefix = rest.slice(1, i); rest = rest.slice(i + 1); }
+    const ti = rest.indexOf(' :');
+    if (ti !== -1) { trailing = rest.slice(ti + 2); rest = rest.slice(0, ti); }
+    const parts = rest.split(' ');
+    return { tags, prefix, command: parts[0], params: parts.slice(1), trailing };
+  }
+
+  function handleLine(line) {
+    const m = parse(line);
+    if (m.command === 'PING') { ws && ws.send('PONG :' + (m.trailing || 'tmi.twitch.tv')); return; }
+    if (m.command === 'JOIN' || m.command === '366') {
+      if (!joined) { log('✔ Rejoint le chat de #' + channelName); el.chatEmpty.textContent = 'Connecté, en attente de messages…'; }
+      joined = true; clearTimeout(joinTimer); setConn('on'); return;
+    }
+    if (m.command === 'NOTICE') { log('Twitch : ' + (m.trailing || '')); return; }
+    if (m.command === 'RECONNECT') { ws && ws.close(); return; }
+    if (m.command !== 'PRIVMSG') return;
+    msgCount++; setConn('on');
+    const login = m.prefix.split('!')[0].toLowerCase();
+    let text = m.trailing || '';
+    const action = text.startsWith('\x01ACTION ');
+    if (action) text = text.slice(8).replace(/\x01$/, '');
+    const msg = {
+      login,
+      display: m.tags['display-name'] || login,
+      color: m.tags['color'] || '',
+      emotes: m.tags['emotes'] || '',
+      isMod: m.tags['mod'] === '1',
+      isBroadcaster: (m.tags['badges'] || '').includes('broadcaster/') || login === channelName,
+      action, text
+    };
+    onChat(msg);
+    pushChat(msg);
+  }
+
+  /* ---------- Chat en direct ---------- */
+  function pushChat(m) {
+    const log_ = el.chatLog;
+    const atBottom = log_.scrollHeight - log_.scrollTop - log_.clientHeight < 60;
+    el.chatEmpty.classList.add('hidden');
+    const line = document.createElement('div');
+    line.className = 'line' + (m.action ? ' action' : '');
+    if (state === 'picked' && winner && m.login === winner.login) line.classList.add('win');
+    else if (participants.has(m.login)) line.classList.add('in');
+    const nm = document.createElement('button');
+    nm.className = 'nm'; nm.textContent = m.display; nm.style.color = readable(m.color);
+    nm.title = 'Voir le profil / contacter';
+    nm.onclick = () => openContact(m.login, m.display);
+    const tx = document.createElement('span');
+    tx.className = 'tx';
+    renderMessage(tx, m.text, m.emotes);
+    line.append(nm, document.createTextNode(': '), tx);
+    log_.appendChild(line);
+    while (log_.querySelectorAll('.line').length > 200) log_.querySelector('.line').remove();
+    if (atBottom) log_.scrollTop = log_.scrollHeight;
+    updateToBottom();
+  }
+  function updateToBottom() {
+    const l = el.chatLog;
+    el.toBottom.classList.toggle('hidden', l.scrollHeight - l.scrollTop - l.clientHeight < 80);
+  }
+  el.chatLog.addEventListener('scroll', updateToBottom);
+  el.toBottom.onclick = () => { el.chatLog.scrollTop = el.chatLog.scrollHeight; };
+  $('clearChat').onclick = () => {
+    el.chatLog.querySelectorAll('.line').forEach(n => n.remove());
+    el.chatEmpty.classList.remove('hidden'); updateToBottom();
+  };
+
+  /* ---------- Logique du tirage ---------- */
+  function onChat(m) {
+    if (state === 'running') tryEnter(m);
+    else if (state === 'picked' && winner && m.login === winner.login) showWinnerMessage(m);
+  }
+
+  function tryEnter(m) {
+    if (excluded.has(m.login)) return;
+    if ($('exBroadcaster').checked && m.isBroadcaster) return;
+    if ($('exMods').checked && m.isMod) return;
+    if (keyword) {
+      const t = m.text.trim().toLowerCase();
+      if (!(t === keyword || t.startsWith(keyword + ' '))) return;
+    }
+    addParticipant(m);
+  }
+
+  function setCount() { el.n.textContent = el.n2.textContent = participants.size; el.chipsEmpty.classList.toggle('hidden', participants.size > 0); }
+
+  function addParticipant(m) {
+    if (participants.has(m.login)) return;
+    participants.set(m.login, { login: m.login, display: m.display, color: m.color });
+    setCount();
+    if (el.chips.childElementCount < 300) {
+      const c = document.createElement('button');
+      c.className = 'chip'; c.textContent = m.display; c.dataset.login = m.login;
+      c.title = 'Voir le profil / contacter';
+      c.onclick = () => openContact(m.login, m.display);
+      el.chips.appendChild(c);
+    }
+  }
+
+  function start() {
+    const ch = getChannel();
+    if (ch === null) return;
+    const dur = (parseInt($('min').value) || 0) * 60 + (parseInt($('sec').value) || 0);
+    const fake = !ch && !wantConnected;
+    if (dur <= 0) { alert('Indique une durée supérieure à 0.'); return; }
+    if (fake && !confirm('Aucune chaîne indiquée : le tirage tournera en mode test (utilise les participants fictifs). Continuer ?')) return;
+    saveSettings();
+    setTab('draw');
+    clearTimers();
+    keyword = $('keyword').value.trim().toLowerCase();
+    excluded = new Set($('excluded').value.split(',').map(s => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean));
+    participants.clear(); winner = null;
+    el.chips.textContent = ''; setCount();
+    el.winner.classList.add('hidden'); resetMessage();
+    state = 'running';
+    endAt = Date.now() + dur * 1000;
+    if (ch && (!wantConnected || channelName !== ch || !ws)) { channelName = ch; connect(); }
+    tickTimer = setInterval(tick, 200);
+    tick(); render();
+  }
+
+  function tick() {
+    const left = Math.max(0, endAt - Date.now());
+    const s = Math.ceil(left / 1000);
+    el.timer.textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+    if (left <= 0) { clearInterval(tickTimer); tickTimer = null; finish(); }
+  }
+
+  function finish() {
+    if (participants.size === 0) { state = 'idle'; render('Personne n\'a participé : tirage annulé.'); return; }
+    draw();
+  }
+
+  function draw() {
+    const list = [...participants.values()];
+    winner = list[randInt(list.length)];
+    state = 'drawing';
+    resetMessage();
+    render();
+    el.winner.classList.remove('hidden', 'reveal', 'clickable');
+    let t = 0;
+    spinTimer = setInterval(() => {
+      el.winner.textContent = list[randInt(list.length)].display;
+      t += 90;
+      if (t >= 3000) { clearInterval(spinTimer); spinTimer = null; reveal(); }
+    }, 90);
+  }
+
+  function reveal() {
+    state = 'picked';
+    el.winner.textContent = winner.display;
+    el.winner.classList.add('clickable');
+    void el.winner.offsetWidth;
+    el.winner.classList.add('reveal');
+    render();
+  }
+
+  function reroll() {
+    if (state !== 'picked' || !winner) return;
+    participants.delete(winner.login);
+    const c = el.chips.querySelector('[data-login="' + winner.login + '"]');
+    if (c) c.remove();
+    setCount();
+    if (participants.size === 0) { winner = null; state = 'idle'; el.winner.classList.add('hidden'); resetMessage(); render('Plus aucun participant disponible.'); return; }
+    draw();
+  }
+
+  function reset() {
+    clearTimers();
+    state = 'idle'; winner = null; participants.clear();
+    el.chips.textContent = ''; setCount();
+    el.winner.classList.add('hidden'); resetMessage();
+    render();
+  }
+  function clearTimers() { clearInterval(tickTimer); clearInterval(spinTimer); tickTimer = spinTimer = null; }
+
+  /* ---------- Message du gagnant ---------- */
+  function resetMessage() { el.msg.classList.add('hidden'); el.msgEmpty.classList.remove('hidden'); }
+  function showWinnerMessage(m) {
+    el.who.textContent = m.display;
+    el.who.style.color = readable(m.color);
+    renderMessage(el.txt, m.text, m.emotes);
+    el.msgEmpty.classList.add('hidden');
+    el.msg.classList.remove('hidden');
+    el.msg.style.animation = 'none'; void el.msg.offsetWidth; el.msg.style.animation = '';
+    render();
+  }
+
+  function renderMessage(target, text, emotesTag) {
+    target.textContent = '';
+    const chars = Array.from(text);
+    const ranges = [];
+    if (emotesTag) {
+      emotesTag.split('/').forEach(g => {
+        const [id, pos] = g.split(':');
+        if (!pos) return;
+        pos.split(',').forEach(r => { const [s, e] = r.split('-').map(Number); if (!isNaN(s) && !isNaN(e)) ranges.push({ s, e, id }); });
+      });
+    }
+    ranges.sort((a, b) => a.s - b.s);
+    let i = 0, buf = '';
+    const flush = () => { if (buf) { target.appendChild(document.createTextNode(buf)); buf = ''; } };
+    for (const r of ranges) {
+      if (r.s < i) continue;
+      while (i < r.s) buf += chars[i++];
+      flush();
+      const img = document.createElement('img');
+      img.src = 'https://static-cdn.jtvnw.net/emoticons/v2/' + encodeURIComponent(r.id) + '/default/dark/2.0';
+      img.alt = chars.slice(r.s, r.e + 1).join('');
+      target.appendChild(img);
+      i = r.e + 1;
+    }
+    while (i < chars.length) buf += chars[i++];
+    flush();
+  }
+
+  /* ---------- Contact ---------- */
+  let contactUser = null;
+  function openContact(login, display) {
+    if (!/^\w{1,25}$/.test(login)) return;
+    contactUser = { login, display };
+    $('cName').textContent = display;
+    $('cLogin').textContent = 'twitch.tv/' + login;
+    $('cProfile').href = 'https://www.twitch.tv/' + login;
+    $('cPopout').href = /^\w{3,25}$/.test(channelName) ? 'https://www.twitch.tv/popout/' + channelName + '/chat?popout=' : 'https://www.twitch.tv/';
+    $('toast').textContent = '';
+    $('contact').classList.remove('hidden');
+  }
+  function closeContact() { $('contact').classList.add('hidden'); }
+  let toastTimer = null;
+  function toast(s) { $('toast').textContent = s; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').textContent = ''; }, 3500); }
+  async function copyText(t) {
+    try { await navigator.clipboard.writeText(t); }
+    catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (_) {}
+      ta.remove();
+    }
+    toast('Copié ✔ Colle-le maintenant dans le chat Twitch.');
+  }
+  const cleanMsg = () => $('cMsg').value.replace(/\s+/g, ' ').trim();
+  $('cWhisper').onclick = () => { if (contactUser) copyText('/w ' + contactUser.login + ' ' + cleanMsg()); };
+  $('cMention').onclick = () => { if (contactUser) copyText('@' + contactUser.display + ' ' + cleanMsg()); };
+  $('closeContact').onclick = closeContact;
+  $('contact').addEventListener('mousedown', e => { if (e.target === $('contact')) closeContact(); });
+
+  el.winner.onclick = () => { if (state === 'picked' && winner) openContact(winner.login, winner.display); };
+  el.winner.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && state === 'picked' && winner) { e.preventDefault(); openContact(winner.login, winner.display); } });
+
+  /* ---------- Rendu de l'interface ---------- */
+  function render(customStatus) {
+    const running = state === 'running', drawing = state === 'drawing', picked = state === 'picked';
+    el.startBtn.disabled = running || drawing;
+    el.rerollBtn.classList.toggle('hidden', !picked);
+    el.timer.classList.toggle('hidden', !running);
+    el.count.classList.toggle('hidden', !(running || drawing || picked));
+    el.hint.classList.toggle('hidden', !picked);
+    let s = 'Prêt. Configure le tirage puis clique sur « Lancer ».';
+    if (running) s = keyword ? 'Tapez « ' + keyword + ' » dans le chat pour participer !' : 'Écrivez un message dans le chat pour participer !';
+    else if (drawing) s = 'Tirage au sort en cours…';
+    else if (picked) s = el.msg.classList.contains('hidden')
+      ? '🎉 Félicitations ! En attente de son message dans le chat…'
+      : '🎉 Le gagnant a parlé !';
+    el.status.textContent = customStatus || s;
+  }
+
+  /* ---------- Événements ---------- */
+  el.startBtn.onclick = start;
+  el.rerollBtn.onclick = reroll;
+  el.resetBtn.onclick = reset;
+  el.chatBtn.onclick = toggleChat;
+  $('overlayBtn').onclick = () => { document.body.classList.add('overlay'); $('exitOverlay').classList.remove('hidden'); };
+  $('exitOverlay').onclick = () => { document.body.classList.remove('overlay'); $('exitOverlay').classList.add('hidden'); };
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!$('contact').classList.contains('hidden')) closeContact(); else $('exitOverlay').click();
+  });
+  FIELDS.forEach(f => $(f).addEventListener('change', saveSettings));
+
+  // Mode test
+  $('fakeBtn').onclick = () => {
+    if (state !== 'running') { alert('Lance d\'abord un tirage.'); return; }
+    ['Alice','Bob','Chloé','Dylan','Emma','Farid','Gaëlle','Hugo','Inès','Jules'].sort(() => Math.random() - .5).slice(0, 5)
+      .forEach(n => addParticipant({ login: n.toLowerCase().replace(/[^a-z0-9]/g, '') + randInt(99), display: n, color: '' }));
+  };
+  $('fakeMsgBtn').onclick = () => {
+    if (state !== 'picked' || !winner) { alert('Attends qu\'un gagnant soit tiré.'); return; }
+    const m = { login: winner.login, display: winner.display, color: winner.color, emotes: '', text: 'C\'est moi le gagnant, merci beaucoup ! 🎉' };
+    showWinnerMessage(m); pushChat(m);
+  };
+
+  /* ---------- Onglets (téléphone) ---------- */
+  function setTab(t) {
+    document.body.dataset.tab = t;
+    document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+    window.scrollTo(0, 0);
+    if (t === 'chat') el.chatLog.scrollTop = el.chatLog.scrollHeight;
+  }
+  document.querySelectorAll('#tabs button').forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
+  setTab($('channel').value ? 'draw' : 'cfg');
+
+  render();
+})();
+</script>
+</body>
+</html>
